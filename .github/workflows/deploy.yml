@@ -11,10 +11,12 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - run: npm install
-      - run: npm run deploy -- --var TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" --var ALLOWED_CHAT_ID="${{ secrets.ALLOWED_CHAT_ID }}" --var URLS="${{ secrets.URLS }}" --var CRON_SECRET="${{ secrets.CRON_SECRET }}"
+      - run: python3 -c "import os; vars=['TELEGRAM_BOT_TOKEN','ALLOWED_CHAT_ID','URLS','CRON_SECRET']; open('.dev.vars','w').write(''.join(f'{k}={os.environ[k]}\n' for k in vars if k in os.environ))"
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ALLOWED_CHAT_ID: ${{ secrets.ALLOWED_CHAT_ID }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           URLS: ${{ secrets.URLS }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
