@@ -1,0 +1,21 @@
+{
+  "name": "tbc-telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "scrape:once": "wrangler dev --compatibility-obs=2025-03-01 -- tail events || true"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "itty-router": "^4.2.1",
+    "node-html-parser": "^6.1.13",
+    "diff": "^5.2.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.7.0",
+    "typescript": "^5.7.0",
+    "@types/diff": "^6.0.0"
+  }
+}
