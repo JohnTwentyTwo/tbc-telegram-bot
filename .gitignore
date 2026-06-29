@@ -1,6 +1,1 @@
-node_modules
 wrangler.toml
-dist
-.wrangler
-.dev.vars
-*.log
