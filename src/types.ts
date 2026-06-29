@@ -1,8 +1,10 @@
 export interface Env {
   TELEGRAM_BOT_TOKEN: string;
   ALLOWED_CHAT_ID: string;
+  BASE_URL: string;
   URLS: string;
-  SNAPSHOT_INTERVAL: string;
+  CRON_SECRET: string;
+  TOTAL_PAGES: string;
 }
 
 export interface StoredSnapshot {
@@ -15,7 +17,6 @@ export interface StoredSnapshot {
 export type EnvBindings = {
   bindings: {
     kv: KVNamespace;
-    // future: ai: Ai;
   };
 };
 

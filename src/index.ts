@@ -1,208 +1,155 @@
 import { Router } from 'itty-router';
-import { fetchAndExtract } from './scraper';
-import { computeDiff, summarizeChange } from './diff';
+import type { EnvWithKV } from './types';
 import { sendMessage } from './telegram';
 import { saveSnapshot, latestSnapshot, allSnapshots } from './kv';
-import { runScheduledScan } from './cron';
-import type { EnvWithKV } from './types';
-
-export { Router };
+import { fetchAndExtract } from './scraper';
+import { computeDiff, summarizeChange } from './diff';
 
 export const router = Router();
 router.get('/', () => new Response('TBC Bot is running', { status: 200 }));
 
-// Telegram webhook entry
 router.post('/webhook/:token', async (request, env: EnvWithKV) => {
   if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-
   const update = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!update) return new Response('Bad Request', { status: 400 });
 
   const allowed = env.ALLOWED_CHAT_ID;
-  const message = (update as { message?: Record<string, unknown> }).message as
-    | Record<string, unknown>
-    | undefined;
-
+  const message = (update as { message?: Record<string, unknown> }).message as Record<string, unknown> | undefined;
   if (!message || !allowed) return new Response('ok');
 
-  const chatId = String((message.chat as Record<string, unknown>)?.id || '');
+  const chatId = String(((message?.chat as Record<string, unknown>))?.id || '');
   if (chatId !== allowed) return new Response('Forbidden', { status: 403 });
 
   const text = String((message as Record<string, unknown>)?.text || '').trim();
-  const fromId = String(((message as Record<string, unknown>).from as Record<string, unknown>)?.id || '');
 
   try {
-    await handleMessage(text, chatId, fromId, env);
+    await handleMessage(text, chatId, env);
   } catch (err) {
-    await sendMessage(
-      env.TELEGRAM_BOT_TOKEN,
-      chatId,
-      `❌ Lỗi xử lý: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `❌ Lỗi xử lý: ${err instanceof Error ? err.message : String(err)}`);
   }
-
   return new Response('ok');
 });
 
-// Manual trigger for 12h scan
-router.get('/cron/scan', async (_, env: EnvWithKV) => {
-  const auth = new URL(_.url).searchParams.get('auth');
-  if (!auth || auth !== env.CRON_SECRET) return new Response('Forbidden', { status: 403 });
-  await runScanCycle(env);
-  return new Response('Scanned', { status: 200 });
-});
-
-// Query endpoint: /query?q=...
-router.get('/query', async (req, env) => {
-  const url = new URL(req.url);
-  const q = url.searchParams.get('q') || '';
-  if (!q) return new Response('Missing q', { status: 400 });
-
-  const chatId = url.searchParams.get('chatId') || '';
-  if (chatId !== env.ALLOWED_CHAT_ID) return new Response('Forbidden', { status: 403 });
-
-  const urls = (env.URLS || '').split(',').map((u) => u.trim()).filter(Boolean);
-  const lines: string[] = [`🔎 Tra cứu: ${q}`];
-
-  for (const u of urls) {
-    const snap = await latestSnapshot(env.kv, u);
-    if (!snap) {
-      lines.push(`\nURL: ${u}\nChưa có snapshot.`);
-      continue;
-    }
-    const hay = (snap.title + '\n' + snap.content).toLowerCase();
-    const ql = q.toLowerCase();
-    const matched = hay.includes(ql);
-    const ctx = matched ? extractContext(snap.content, ql) : '(không có đoạn trùng khớp)';
-    lines.push(`\nURL: ${u}\nTiêu đề: ${snap.title}\nTại: ${snap.at.split('T')[0]}\nĐoạn trùng khớp:\n${ctx}`);
-  }
-
-  if (chatId) {
-    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, lines.join('\n'));
-    return new Response('ok');
-  }
-  return new Response(lines.join('\n'), { headers: { 'content-type': 'text/plain;charset=utf-8' } });
-});
-
-async function handleMessage(text: string, chatId: string, _fromId: string, env: EnvWithKV) {
+async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
   if (text.startsWith('/start')) {
-    await sendMessage(
-      env.TELEGRAM_BOT_TOKEN,
-      chatId,
-      'TBC Monitor bot đã sẵn sàng.\nLệnh:\n/scan - chạy scan tất cả URLs\n/latest - báo snapshot gần nhất\n/changes - báo thay đổi gần nhất\n/chatids - chat id hiện tại',
-    );
+    const count = (env.URLS || '').split('|').filter(Boolean).length;
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `TBC Monitor bot đã sẵn sàng.\nTổng URLs: ${count}\nLệnh: /start, /all, /scan, /cron, /latest, /changes`);
     return;
   }
 
-  if (text.startsWith('/chatids')) {
-    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `ChatId: ${chatId}`);
+  if (text.startsWith('/all')) {
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'Đang quét toàn bộ trang...');
+    const urls = (env.URLS || '').split('|').filter(Boolean);
+    const out: string[] = [];
+    for (const u of urls) {
+      try {
+        const snap = await fetchAndExtract(u);
+        await saveSnapshot(env.bindings.kv, u, snap);
+        out.push(u);
+        if (out.length % 10 === 0) await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `Đã quét ${out.length}/${urls.length}...`);
+      } catch (err) {
+        await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `⚠️ Lỗi quét ${u}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `Quét xong ${out.length} trang.`);
     return;
   }
 
   if (text.startsWith('/scan')) {
-    await runScanCycle(env);
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'Đang scan toàn bộ...');
+    const urls = (env.URLS || '').split('|').filter(Boolean);
+    for (const u of urls) {
+      try {
+        const snap = await fetchAndExtract(u);
+        const prev = await latestSnapshot(env.bindings.kv, u);
+        if (prev && prev.content !== snap.content) {
+          const diff = computeDiff(prev.content, snap.content);
+          const sum = summarizeChange(diff.added, diff.removed);
+          await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `🔔 Thay đổi:\n${u}\n${sum}`);
+        }
+        await saveSnapshot(env.bindings.kv, u, snap);
+      } catch (err) {
+        await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `⚠️ Lỗi scan ${u}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, '✅ Scan xong.');
+    return;
+  }
+
+  if (text.startsWith('/cron')) {
+    const count = (env.URLS || '').split('|').filter(Boolean).length;
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `Cron: active\nSchedule: 0 */12 * * *\nURLs: ${count}`);
     return;
   }
 
   if (text.startsWith('/latest')) {
-    const urls = (env.URLS || '').split(',').map((u) => u.trim()).filter(Boolean);
+    const urls = (env.URLS || '').split('|').filter(Boolean);
     let msg = '📌 Snapshot gần nhất:\n';
     for (const u of urls) {
-      const snap = await latestSnapshot(env.kv, u);
-      msg += `\n${snap ? `• ${u}\n  Title: ${snap.title}\n  At: ${snap.at.split('T')[0]}` : `• ${u}: chưa có`}`;
+      const snap = await latestSnapshot(env.bindings.kv, u);
+      msg += `\n• ${u}\n  Title: ${snap ? snap.title : 'chưa có'}\n  At: ${snap ? snap.at.split('T')[0] : ''}`;
     }
     await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, msg);
     return;
   }
 
   if (text.startsWith('/changes')) {
-    const urls = (env.URLS || '').split(',').map((u) => u.trim()).filter(Boolean);
+    const urls = (env.URLS || '').split('|').filter(Boolean);
     let full = '📝 Thay đổi gần nhất:\n';
     for (const u of urls) {
-      const snaps = await allSnapshots(env.kv, u);
+      const snaps = await allSnapshots(env.bindings.kv, u);
       if (snaps.length < 2) {
-        full += `\n• ${u}: chưa đủ dữ liệu để so sánh`;
+        full += `\n• ${u}: chưa đủ dữ liệu`;
         continue;
       }
       const [oldSnap, newSnap] = [snaps[snaps.length - 2], snaps[snaps.length - 1]];
-      const diff = computeDiff(oldSnap.content, newSnap.content);
-      const sum = summarizeChange(diff.added, diff.removed);
+      const diff = await (await import('./diff')).computeDiff(oldSnap.content, newSnap.content);
+      const sum = await (await import('./diff')).summarizeChange(diff.added, diff.removed);
       full += `\n• ${u}\n${sum}`;
     }
     await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, full);
     return;
   }
 
-  // Free text search on latest snapshots
-  if (text.startsWith('/')) {
-    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'Lệnh không hợp lệ. Dùng /scan, /latest, /changes.');
-    return;
-  }
-
-  const urls = (env.URLS || '').split(',').map((u) => u.trim()).filter(Boolean);
-  const lines: string[] = [`🔎 "${text}"`];
-  for (const u of urls) {
-    const snap = await latestSnapshot(env.kv, u);
-    if (!snap) { lines.push(`\n• ${u}: chưa có snapshot`); continue; }
-    const combined = (snap.title + '\n' + snap.content).toLowerCase();
-    const ql = text.toLowerCase();
-    const found = combined.includes(ql);
-    lines.push(
-      `\n• ${u}${found ? ' ✅' : ' ❌'}`,
-      `Title: ${snap.title}`,
-      `At: ${snap.at.split('T')[0]}`,
-      found ? `Đoạn trùng: ${extractContext(snap.content, ql)}` : '',
-    );
-  }
-  await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, lines.join('\n'));
+  await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'Lệnh: /start, /all (quét toàn bộ), /scan, /cron, /latest, /changes');
 }
 
-async function runScanCycle(env: EnvWithKV) {
-  const urls = (env.URLS || '').split(',').map((u) => u.trim()).filter(Boolean);
+export default {
+  fetch: router.fetch,
+  scheduled,
+};
+
+export async function scheduled(_event: { scheduledTime: number }, env: EnvWithKV) {
+  const urls = (env.URLS || '').split('|').filter(Boolean);
   const chatId = env.ALLOWED_CHAT_ID;
   let changed = 0;
 
-  for (const u of urls) {
-    try {
-      const snap = await fetchAndExtract(u);
-      const prev = await latestSnapshot(env.kv, u);
-      if (prev && prev.content !== snap.content) {
-        const diff = computeDiff(prev.content, snap.content);
-        const sum = summarizeChange(diff.added, diff.removed);
-        await sendMessage(
-          env.TELEGRAM_BOT_TOKEN,
-          chatId,
-          `🔔 Thay đổi tại\n${u}\nThời gian: ${snap.title}\n${sum}`,
-        );
-        changed++;
+  const { fetchAndExtract } = await import('./scraper');
+  const { saveSnapshot, latestSnapshot } = await import('./kv');
+  const { computeDiff, summarizeChange } = await import('./diff');
+  const { sendMessage } = await import('./telegram');
+
+  await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `⏰ Bắt đầu cron: ${urls.length} URLs`);
+
+  try {
+    for (const base of urls) {
+      try {
+        const snap = await fetchAndExtract(base);
+        const prev = await latestSnapshot(env.bindings.kv, base);
+        if (prev && prev.content !== snap.content) {
+          const diff = computeDiff(prev.content, snap.content);
+          const sum = summarizeChange(diff.added, diff.removed);
+          await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `🔔 Thay đổi:\n${base}\n${sum}`);
+          changed++;
+        }
+        await saveSnapshot(env.bindings.kv, base, snap);
+      } catch (err) {
+        await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `⚠️ Lỗi cron ${base}: ${err instanceof Error ? err.message : String(err)}`);
       }
-      await saveSnapshot(env.kv, u, snap);
-    } catch (err) {
-      await sendMessage(
-        env.TELEGRAM_BOT_TOKEN,
-        chatId,
-        `⚠️ Lỗi scrape ${u}: ${err instanceof Error ? err.message : String(err)}`,
-      );
     }
+  } catch (err) {
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `❌ Lỗi cron tổng: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  await sendMessage(
-    env.TELEGRAM_BOT_TOKEN,
-    chatId,
-    `✅ Scan xong ${urls.length} URLs. Thay đổi: ${changed}.`,
-  );
-}
-
-function extractContext(text: string, q: string, window = 160): string {
-  const idx = text.toLowerCase().indexOf(q);
-  if (idx === -1) return '(không xác định)';
-  const start = Math.max(0, idx - window);
-  const end = Math.min(text.length, idx + q.length + window);
-  return (start > 0 ? '...' : '') + text.slice(start, end) + (end < text.length ? '...' : '');
-}
-
-export default router;
-
-export async function scheduled(event: ScheduledEvent, env: EnvWithKV) {
-  await runScheduledScan(env);
+  await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `✅ Cron xong. Thay đổi: ${changed}.`);
 }
