@@ -42,7 +42,7 @@ router.post('/webhook/:token', async (request, env: EnvWithKV) => {
 async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
   if (text.startsWith('/start')) {
     const count = await getUrlList(env).length;
-    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `TBC Monitor bot đã sẵn sàng.\nTổng URLs: ${count}\nLệnh: /start, /all, /scan, /cron, /latest, /changes`);
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `TBC Monitor bot đã sẵn sàng.\nTổng URLs: ${count}\nLệnh: /start, /all, /scan, /cron, /latest, /changes, /tree`);
     return;
   }
 
@@ -87,7 +87,7 @@ async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
 
   if (text.startsWith('/cron')) {
     const count = await getUrlList(env).length;
-    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `Cron: active\nSchedule: 0 */12 * * *\nURLs: ${count}`);
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `Cron: active\nSchedule: 0 */12 * * *\nURLs: ${count}\n/tree liệt kê cây web đã quét`);
     return;
   }
 
@@ -120,7 +120,57 @@ async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
     return;
   }
 
-  await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'Lệnh: /start, /all (quét toàn bộ), /scan, /cron, /latest, /changes');
+  if (text.startsWith('/tree')) {
+    const urls = await getUrlList(env);
+    let msg = '🌳 Cây web HelpCenter TBC:\n\n';
+    const sections: Record<string, string[]> = { 'root': [], 'section': [], 'faq': [] };
+    for (const u of urls) {
+      const trimmed = u.replace(/\/+$/, '');
+      if (trimmed === 'https://freedom-tbc.helpshift.com/hc/en/4-trump-billionaire-club') {
+        sections['root'].push(u);
+      } else if (trimmed.includes('/section/')) {
+        sections['section'].push(u);
+      } else if (trimmed.includes('/faq/')) {
+        sections['faq'].push(u);
+      } else {
+        sections['root'].push(u);
+      }
+    }
+    const countChecked = async (list: string[]) => {
+      let c = 0;
+      for (const u of list) {
+        const s = await latestSnapshot(env.bindings.kv, u);
+        if (s) c++;
+      }
+      return c;
+    };
+    const rootChecked = await countChecked(sections['root']);
+    const sectionChecked = await countChecked(sections['section']);
+    const faqChecked = await countChecked(sections['faq']);
+    msg += `📁 Root (${rootChecked}/${sections['root'].length})\n`;
+    for (const u of sections['root']) {
+      const s = await latestSnapshot(env.bindings.kv, u);
+      msg += s ? '  ✅ ' : '  ⬜ ';
+      msg += u.replace('https://freedom-tbc.helpshift.com/hc/en/4-trump-billionaire-club', '') || '/\n';
+    }
+    msg += `\n📂 Sections (${sectionChecked}/${sections['section'].length})\n`;
+    for (const u of sections['section']) {
+      const s = await latestSnapshot(env.bindings.kv, u);
+      const slug = u.split('/section/')[1]?.replace(/\/+$/, '') || u;
+      msg += s ? `  ✅ /section/${slug}\n` : `  ⬜ /section/${slug}\n`;
+    }
+    msg += `\n📄 FAQs (${faqChecked}/${sections['faq'].length})\n`;
+    for (const u of sections['faq']) {
+      const s = await latestSnapshot(env.bindings.kv, u);
+      const slug = u.split('/faq/')[1]?.replace(/\/+$/, '') || u;
+      msg += s ? `  ✅ /faq/${slug}\n` : `  ⬜ /faq/${slug}\n`;
+    }
+    msg += `\nTổng: ${urls.length} URLs | Đã quét: ${rootChecked + sectionChecked + faqChecked}`;
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, msg);
+    return;
+  }
+
+  await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'Lệnh: /start, /all (quét toàn bộ), /scan, /cron, /latest, /changes, /tree');
 }
 
 export default {
