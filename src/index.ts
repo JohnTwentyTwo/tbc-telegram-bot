@@ -41,7 +41,7 @@ router.post('/webhook/:token', async (request, env: EnvWithKV) => {
 
 async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
   if (text.startsWith('/start')) {
-    const count = await getUrlList(env).length;
+    const count = (await getUrlList(env)).length;
     await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `TBC Monitor bot đã sẵn sàng.\nTổng URLs: ${count}\nLệnh: /start, /all, /scan, /cron, /latest, /changes, /tree`);
     return;
   }
@@ -86,7 +86,7 @@ async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
   }
 
   if (text.startsWith('/cron')) {
-    const count = await getUrlList(env).length;
+    const count = (await getUrlList(env)).length;
     await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `Cron: active\nSchedule: 0 */12 * * *\nURLs: ${count}\n/tree liệt kê cây web đã quét`);
     return;
   }
