@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20', cache: 'npm' }
+        with: { node-version: '22', cache: 'npm' }
       - run: npm install
       - run: python3 -c "import os; vars=['TELEGRAM_BOT_TOKEN','ALLOWED_CHAT_ID','URLS','CRON_SECRET']; open('.dev.vars','w').write(''.join(f'{k}={os.environ[k]}\n' for k in vars if k in os.environ))"
         env:
