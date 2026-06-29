@@ -11,12 +11,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - run: npm install
-      - run: |
-          printf 'TELEGRAM_BOT_TOKEN=%s\n' "${{ secrets.TELEGRAM_BOT_TOKEN }}" > .dev.vars
-          printf 'ALLOWED_CHAT_ID=%s\n' "${{ secrets.ALLOWED_CHAT_ID }}" >> .dev.vars
-          printf 'URLS=%s\n' "${{ secrets.URLS }}" >> .dev.vars
-          printf 'CRON_SECRET=%s\n' "${{ secrets.CRON_SECRET }}" >> .dev.vars
-      - run: npm run deploy
+      - run: npm run deploy -- --var TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" --var ALLOWED_CHAT_ID="${{ secrets.ALLOWED_CHAT_ID }}" --var URLS="${{ secrets.URLS }}" --var CRON_SECRET="${{ secrets.CRON_SECRET }}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
