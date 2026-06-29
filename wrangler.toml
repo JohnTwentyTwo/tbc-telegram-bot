@@ -1,0 +1,13 @@
+name = "tbc-bot"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "kv"
+id = "__PLACEHOLDER__"
+preview_id = "__PLACEHOLDER_PREVIEW__"
+
+[vars]
+ALLOWED_CHAT_ID = "5747246445"
+URLS = "https://freedom-tbc.helpshift.com/hc/en/4-trump-billionaire-club/faq/100-how-does-player-level-work/"
