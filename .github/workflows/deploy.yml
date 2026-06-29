@@ -11,12 +11,24 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: 'npm' }
       - run: npm install
-      - run: python3 -c "import os; vars=['TELEGRAM_BOT_TOKEN','ALLOWED_CHAT_ID','URLS','CRON_SECRET']; open('.dev.vars','w').write(''.join(f'{k}={os.environ[k]}\n' for k in vars if k in os.environ))"
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          ALLOWED_CHAT_ID: ${{ secrets.ALLOWED_CHAT_ID }}
-          URLS: ${{ secrets.URLS }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - run: npm run deploy
+      - name: Deploy via Python wrapper
+        run: |
+          python3 -c "
+          import os, subprocess, sys
+          token = os.environ.get('CLOUDFLARE_API_TOKEN', '')
+          if not token:
+              print('Missing CLOUDFLARE_API_TOKEN')
+              sys.exit(1)
+          r = subprocess.run(['wrangler', 'whoami'], capture_output=True, text=True)
+          print(r.stdout)
+          if r.returncode != 0:
+              print(r.stderr)
+              sys.exit(1)
+          r = subprocess.run(['wrangler', 'deploy', '--minify'], capture_output=True, text=True)
+          print(r.stdout)
+          if r.stderr:
+              print(r.stderr)
+          sys.exit(r.returncode)
+          "
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -5,6 +5,15 @@ import { saveSnapshot, latestSnapshot, allSnapshots } from './kv';
 import { fetchAndExtract } from './scraper';
 import { computeDiff, summarizeChange } from './diff';
 
+let urlCache: string[] | null = null;
+
+async function getUrlList(env: EnvWithKV): Promise<string[]> {
+  if (urlCache) return urlCache;
+  const raw = await env.bindings.kv.get('URLS', 'text');
+  urlCache = raw ? raw.split('|').filter(Boolean) : [];
+  return urlCache;
+}
+
 export const router = Router();
 router.get('/', () => new Response('TBC Bot is running', { status: 200 }));
 
@@ -32,14 +41,14 @@ router.post('/webhook/:token', async (request, env: EnvWithKV) => {
 
 async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
   if (text.startsWith('/start')) {
-    const count = (env.URLS || '').split('|').filter(Boolean).length;
+    const count = await getUrlList(env).length;
     await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `TBC Monitor bot đã sẵn sàng.\nTổng URLs: ${count}\nLệnh: /start, /all, /scan, /cron, /latest, /changes`);
     return;
   }
 
   if (text.startsWith('/all')) {
     await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'Đang quét toàn bộ trang...');
-    const urls = (env.URLS || '').split('|').filter(Boolean);
+    const urls = await getUrlList(env);
     const out: string[] = [];
     for (const u of urls) {
       try {
@@ -57,7 +66,7 @@ async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
 
   if (text.startsWith('/scan')) {
     await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'Đang scan toàn bộ...');
-    const urls = (env.URLS || '').split('|').filter(Boolean);
+    const urls = await getUrlList(env);
     for (const u of urls) {
       try {
         const snap = await fetchAndExtract(u);
@@ -77,13 +86,13 @@ async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
   }
 
   if (text.startsWith('/cron')) {
-    const count = (env.URLS || '').split('|').filter(Boolean).length;
+    const count = await getUrlList(env).length;
     await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `Cron: active\nSchedule: 0 */12 * * *\nURLs: ${count}`);
     return;
   }
 
   if (text.startsWith('/latest')) {
-    const urls = (env.URLS || '').split('|').filter(Boolean);
+    const urls = await getUrlList(env);
     let msg = '📌 Snapshot gần nhất:\n';
     for (const u of urls) {
       const snap = await latestSnapshot(env.bindings.kv, u);
@@ -94,7 +103,7 @@ async function handleMessage(text: string, chatId: string, env: EnvWithKV) {
   }
 
   if (text.startsWith('/changes')) {
-    const urls = (env.URLS || '').split('|').filter(Boolean);
+    const urls = await getUrlList(env);
     let full = '📝 Thay đổi gần nhất:\n';
     for (const u of urls) {
       const snaps = await allSnapshots(env.bindings.kv, u);
@@ -120,7 +129,7 @@ export default {
 };
 
 export async function scheduled(_event: { scheduledTime: number }, env: EnvWithKV) {
-  const urls = (env.URLS || '').split('|').filter(Boolean);
+  const urls = await getUrlList(env);
   const chatId = env.ALLOWED_CHAT_ID;
   let changed = 0;
 
