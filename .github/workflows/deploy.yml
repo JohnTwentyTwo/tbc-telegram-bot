@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: 'npm' }
-      - run: npm install
+      - run: npm ci
       - name: Deploy via Python wrapper
         run: |
           python3 -c "
@@ -19,12 +19,12 @@ jobs:
           if not token:
               print('Missing CLOUDFLARE_API_TOKEN')
               sys.exit(1)
-          r = subprocess.run(['wrangler', 'whoami'], capture_output=True, text=True)
+          r = subprocess.run(['npx', 'wrangler', 'whoami'], capture_output=True, text=True)
           print(r.stdout)
           if r.returncode != 0:
               print(r.stderr)
               sys.exit(1)
-          r = subprocess.run(['wrangler', 'deploy', '--minify'], capture_output=True, text=True)
+          r = subprocess.run(['npx', 'wrangler', 'deploy', '--minify'], capture_output=True, text=True)
           print(r.stdout)
           if r.stderr:
               print(r.stderr)
